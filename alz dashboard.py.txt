@@ -1,0 +1,187 @@
+pip install dash plotly pandas numpy
+pip install joblib dash plotly numpy pandas
+
+
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output, State
+import plotly.graph_objs as go
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from sklearn.preprocessing import StandardScaler
+from collections import deque
+import joblib
+
+# Load pre-trained LSTM model
+model = tf.keras.models.load_model("/content/lstm_model.h5")  # Replace with the actual path
+scaler = joblib.load("scaler.pkl")  # Load the scaler used for feature scaling
+
+# Initialize Dash app
+app = dash.Dash(__name__)
+app.title = "Alzheimer's Prediction Dashboard"
+
+# Initialize rolling data buffers for real-time prediction visualization
+time_window = 50
+time_series = deque(maxlen=time_window)
+prediction_probabilities = deque(maxlen=time_window)
+labels = deque(maxlen=time_window)
+
+# Fill with initial data
+for i in range(time_window):
+    time_series.append(i)
+    prediction_probabilities.append(0.5)  # Neutral probability
+    labels.append("Low Risk")
+
+# App layout
+app.layout = html.Div([
+    html.H1("Alzheimer's Prediction Dashboard", style={'text-align': 'center'}),
+
+    # Model performance section
+    html.Div([
+        html.H3("Model Performance Metrics"),
+        dcc.Graph(id="loss-accuracy-graph", style={'height': '40vh'})
+    ]),
+
+    # Prediction visualization
+    html.Div([
+        html.H3("Real-Time Alzheimer's Risk Prediction"),
+        dcc.Graph(id="real-time-prediction", style={'height': '40vh'}),
+        html.Div([
+            html.Div("Current Risk Level:", style={'font-size': '20px'}),
+            html.Div(id="current-risk", style={
+                'font-size': '30px',
+                'text-align': 'center',
+                'padding': '10px',
+                'color': 'white',
+                'background-color': 'gray',
+                'border-radius': '10px',
+                'margin-top': '10px'
+            })
+        ], style={'text-align': 'center'})
+    ]),
+
+    # Data upload for predictions
+    html.Div([
+        html.H3("Upload Test Data for Predictions"),
+        dcc.Upload(
+            id="upload-data",
+            children=html.Div(["Drag and Drop or ", html.A("Select Files")]),
+            style={
+                'width': '100%',
+                'height': '60px',
+                'lineHeight': '60px',
+                'borderWidth': '1px',
+                'borderStyle': 'dashed',
+                'borderRadius': '5px',
+                'textAlign': 'center',
+                'margin': '10px'
+            },
+            multiple=False
+        ),
+        html.Div(id="upload-status", style={'margin-top': '10px', 'text-align': 'center'})
+    ]),
+
+    # Real-time updates
+    dcc.Interval(id="update-interval", interval=2000, n_intervals=0)  # Every 2 seconds
+])
+
+# Callback to update real-time predictions
+@app.callback(
+    [Output("real-time-prediction", "figure"),
+     Output("current-risk", "children"),
+     Output("current-risk", "style")],
+    [Input("update-interval", "n_intervals")]
+)
+def update_real_time_predictions(n):
+    # Generate synthetic real-time data for visualization
+    num_features = model.input_shape[-1] * model.input_shape[1]
+    test_data = np.random.uniform(-1, 1, size=(1, num_features))
+    test_data = test_data.reshape(1, model.input_shape[1], model.input_shape[2])
+
+    # Predict Alzheimer's risk
+    prob = model.predict(test_data)[0][0]
+    risk_level = "High Risk" if prob > 0.5 else "Low Risk"
+
+    # Update buffers
+    time_series.append(time_series[-1] + 1)
+    prediction_probabilities.append(prob)
+    labels.append(risk_level)
+
+    # Color map for risk level
+    risk_color = "red" if risk_level == "High Risk" else "green"
+
+    # Create real-time prediction figure
+    prediction_figure = {
+        "data": [
+            go.Scatter(
+                x=list(time_series),
+                y=list(prediction_probabilities),
+                mode="lines",
+                name="Risk Probability",
+                line=dict(color="blue")
+            )
+        ],
+        "layout": go.Layout(
+            title="Real-Time Prediction",
+            xaxis={"title": "Time"},
+            yaxis={"title": "Probability of Alzheimer's Risk"},
+            yaxis_range=[0, 1],
+            showlegend=True
+        )
+    }
+
+    # Update risk style
+    risk_style = {
+        'font-size': '30px',
+        'text-align': 'center',
+        'padding': '10px',
+        'color': 'white',
+        'background-color': risk_color,
+        'border-radius': '10px',
+        'margin-top': '10px'
+    }
+
+    return prediction_figure, risk_level, risk_style
+
+# Callback to handle uploaded data
+@app.callback(
+    Output("upload-status", "children"),
+    [Input("upload-data", "contents")],
+    [State("upload-data", "filename"), State("upload-data", "last_modified")]
+)
+def handle_uploaded_data(contents, filename, last_modified):
+    if contents is None:
+        return "No file uploaded yet."
+
+    # Process uploaded data (for simplicity, this example doesn't process files)
+    return f"File '{filename}' uploaded successfully!"
+
+# Placeholder for loss/accuracy visualization
+@app.callback(
+    Output("loss-accuracy-graph", "figure"),
+    [Input("update-interval", "n_intervals")]
+)
+def display_loss_accuracy(n):
+    # Simulate training loss and accuracy for visualization
+    epochs = np.arange(1, 11)
+    loss = np.random.uniform(0.1, 0.5, size=10)
+    accuracy = np.random.uniform(0.8, 1.0, size=10)
+
+    figure = {
+        "data": [
+            go.Scatter(x=epochs, y=loss, mode="lines+markers", name="Loss"),
+            go.Scatter(x=epochs, y=accuracy, mode="lines+markers", name="Accuracy")
+        ],
+        "layout": go.Layout(
+            title="Training Loss and Accuracy",
+            xaxis={"title": "Epochs"},
+            yaxis={"title": "Metric Value"},
+            showlegend=True
+        )
+    }
+    return figure
+
+# Run the app
+if __name__ == "__main__":
+    app.run_server(debug=True)
